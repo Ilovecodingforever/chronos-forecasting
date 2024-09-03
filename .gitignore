@@ -1,3 +1,6 @@
+scripts/kernelsynth-data.arrow
+scripts/noise-data.arrow
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

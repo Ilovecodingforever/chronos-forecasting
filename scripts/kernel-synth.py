@@ -184,7 +184,8 @@ def generate_time_series(max_kernels: int = 5):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-N", "--num-series", type=int, default=1000_000)
+    # parser.add_argument("-N", "--num-series", type=int, default=1000_000)
+    parser.add_argument("-N", "--num-series", type=int, default=100)
     parser.add_argument("-J", "--max-kernels", type=int, default=5)
     args = parser.parse_args()
     path = Path(__file__).parent / "kernelsynth-data.arrow"

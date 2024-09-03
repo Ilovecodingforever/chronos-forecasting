@@ -1,5 +1,10 @@
 # Backtest configs for the 27 "zero-shot" datasets.
 # These datasets were not seen by Chronos models during training.
+- name: ETTh
+  hf_repo: autogluon/chronos_datasets_extra
+  offset: -24
+  prediction_length: 24
+  num_rolls: 1
 - name: monash_traffic
   hf_repo: autogluon/chronos_datasets
   offset: -24
@@ -18,11 +23,6 @@
 - name: ETTm
   hf_repo: autogluon/chronos_datasets_extra
   offset: -96
-  prediction_length: 24
-  num_rolls: 1
-- name: ETTh
-  hf_repo: autogluon/chronos_datasets_extra
-  offset: -24
   prediction_length: 24
   num_rolls: 1
 - name: exchange_rate

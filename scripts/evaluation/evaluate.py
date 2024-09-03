@@ -1,3 +1,8 @@
+import os
+os.environ["HF_HOME"] = "/home/scratch/mingzhul/.cache/huggingface"
+
+
+
 import logging
 from pathlib import Path
 from typing import Iterable, Optional
@@ -346,4 +351,7 @@ if __name__ == "__main__":
     logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     logger = logging.getLogger("Chronos Evaluation")
     logger.setLevel(logging.INFO)
-    app()
+    # app()
+    
+    main('/zfsauton2/home/mingzhul/time-series-prompt/src/chronos_forecasting/scripts/evaluation/configs/in-domain.yaml', 'temp.csv')
+    

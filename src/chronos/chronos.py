@@ -548,13 +548,74 @@ class ChronosPipeline:
 
         chronos_config = ChronosConfig(**config.chronos_config)
 
+        # if chronos_config.model_type == "seq2seq":
+        #     inner_model = AutoModelForSeq2SeqLM.from_pretrained(*args, **kwargs)
+        # else:
+        #     assert chronos_config.model_type == "causal"
+        #     inner_model = AutoModelForCausalLM.from_pretrained(*args, **kwargs)
+
+        inner_model = cls._get_transformer_backbone(chronos_config, *args, **kwargs)
+
+        return cls(
+            tokenizer=chronos_config.create_tokenizer(),
+            model=ChronosModel(config=chronos_config, model=inner_model),
+        )
+
+    @classmethod
+    def _get_transformer_backbone(chronos_config, *args, **kwargs):
+
         if chronos_config.model_type == "seq2seq":
             inner_model = AutoModelForSeq2SeqLM.from_pretrained(*args, **kwargs)
         else:
             assert chronos_config.model_type == "causal"
             inner_model = AutoModelForCausalLM.from_pretrained(*args, **kwargs)
 
-        return cls(
-            tokenizer=chronos_config.create_tokenizer(),
-            model=ChronosModel(config=chronos_config, model=inner_model),
-        )
+        model_config = inner_model.config
+
+        # if config.getattr("enable_gradient_checkpointing", True):
+        #     transformer_backbone.gradient_checkpointing_enable()
+        #     logging.info("Enabling gradient checkpointing.")
+
+        #######################################################################
+        # prefix tuning
+        if config.getattr("prefix_tuning", False) or config.getattr("prefix_tuning_multi", False):
+            logging.info("Using prefix tuning.")
+
+            model_config = T5Config.from_pretrained(config.transformer_backbone)
+            setattr(model_config, 'num_prefix', self.config.getattr("num_prefix", 2))
+            setattr(model_config, 'reparam', True)
+            setattr(model_config, 'reparam_dim', 32)
+            setattr(model_config, 'no_decoder_self_attn', False)
+            setattr(model_config, 'MPT', self.config.getattr("MPT", False))
+            setattr(model_config, 'seq_len', self.config.seq_len)
+            setattr(model_config, 'multivariate_projection', self.config.multivariate_projection)
+            setattr(model_config, 'visualize_attention', self.config.getattr("visualize_attention", False))
+
+            num_patches = (max(self.config.seq_len, self.config.patch_len) - self.config.patch_len
+                        ) // self.config.patch_stride_len + 1
+            setattr(model_config, 'num_patches', num_patches)
+
+
+            if config.getattr("prefix_tuning_multi", False):
+                setattr(model_config, 'prefix_tuning', config.getattr("prefix_tuning", False))
+                transformer_backbone = T5ForConditionalGenerationWithPrefixMulti(model_config)
+
+            elif config.getattr("prefix_tuning", False):
+                transformer_backbone = T5ForConditionalGenerationWithPrefix(model_config)
+
+            transformer_backbone = transformer_backbone.from_pretrained(config.transformer_backbone, config=model_config)
+
+            transformer_backbone.enable_input_require_grads()
+            transformer_backbone = transformer_backbone.encoder
+
+            # check whether the weights is loaded correctly
+            # t5 = T5EncoderModel.from_pretrained(config.transformer_backbone).get_encoder()
+            # for name, param in transformer_backbone.named_parameters():
+            #     if 'prefix' not in name and 'prompt' not in name:
+            #         assert(torch.equal(param, t5.state_dict()[name]))
+
+            # gradient checkpointing for prefix tuning doesn't work:
+            # past_key_value is always None with gradient checkpointing (from T5Stack source code)
+        #######################################################################
+
+        return transformer_backbone
