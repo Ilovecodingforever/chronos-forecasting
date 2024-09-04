@@ -458,7 +458,8 @@ class T5StackWithPrefixMulti(T5Stack):
             # https://d2l.ai/chapter_attention-mechanisms-and-transformers/multihead-attention.html
             
             
-            size = config.forecast_length+1 if config.is_decoder else config.seq_len
+            # size = config.forecast_length+1 if config.is_decoder else config.seq_len
+            size = config.seq_len
             
             self.shared_prompt_projection_linear_key = nn.Linear(size, config.num_prefix*config.num_heads)  # TODO: move this to before attention?
             self.shared_prompt_projection_linear_value = nn.Linear(size, config.num_prefix*config.num_heads)
@@ -588,7 +589,7 @@ class T5ForConditionalGenerationWithPrefixMulti(T5ForConditionalGeneration):
     def __init__(self, config):
         super().__init__(config)
         self.encoder = T5StackWithPrefixMulti(self.encoder.config, self.shared)
-        self.decoder = T5StackWithPrefixMulti(self.decoder.config, self.shared)
+        # self.decoder = T5StackWithPrefixMulti(self.decoder.config, self.shared)
         self.init_weights()
 
 
@@ -614,3 +615,9 @@ class T5ForConditionalGenerationWithPrefixMulti(T5ForConditionalGeneration):
             )
 
         return super().forward(input_ids=input_ids, attention_mask=attention_mask, labels=labels, **kwargs)
+
+
+
+# TODO: make this file match the other t5_multivariate_prefix.py
+
+

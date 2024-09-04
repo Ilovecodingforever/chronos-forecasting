@@ -6,7 +6,7 @@ import logging
 import os
 
 os.environ["HF_HOME"] = "/home/scratch/mingzhul/.cache/huggingface"
-os.environ["CUDA_VISIBLE_DEVICES"] = "5"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 # os.environ["TORCH_USE_CUDA_DSA"] = "1"
 import glob
@@ -261,7 +261,11 @@ def load_model(
 
         transformer_backbone = T5ForConditionalGenerationWithPrefixMulti(model_config)
 
-        model = transformer_backbone.from_pretrained(model_id, config=model_config)
+        model_ = transformer_backbone.from_pretrained(model_id, config=model_config)
+
+        model.encoder = model_.encoder
+        model.decoder = model_.decoder
+        model.forward = model_.forward
 
         # freeze params
         for n, param in model.named_parameters():
@@ -1064,19 +1068,6 @@ def main(
     # Add extra items to model config so that it's saved in the ckpt
     model.config.chronos_config = chronos_config.__dict__
 
-
-    # shuffled_train_dataset = ChronosDataset(
-    #     datasets=train_datasets,
-    #     probabilities=probability,
-    #     tokenizer=chronos_config.create_tokenizer(),
-    #     context_length=context_length,
-    #     prediction_length=prediction_length,
-    #     min_past=min_past,
-    #     model_type=model_type,
-    #     imputation_method=LastValueImputation() if model_type == "causal" else None,
-    #     mode="training",
-    # ).shuffle(shuffle_buffer_length=shuffle_buffer_length)
-
     # Define training args
     training_args = TrainingArguments(
         output_dir=str(output_dir),
@@ -1104,16 +1095,10 @@ def main(
         load_best_model_at_end=True,
     )
 
-
-
-
     from torch.optim.lr_scheduler import OneCycleLR
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.05)
     total_steps = (len(shuffled_train_dataset) // per_device_train_batch_size + 1) * num_train_epochs
     scheduler = OneCycleLR(optimizer, max_lr=learning_rate, total_steps=total_steps, pct_start=0.3)
-
-
-
 
     # Create Trainer instance
     trainer = Trainer(
@@ -1153,29 +1138,19 @@ def main(
         torch_dtype=torch_dtype,
     )
 
-
-    pipeline.model.model = trainer.model
-
-
-    # results = trainer.predict(shuffled_test_dataset)
-
-    # preds = results.predictions
-    # labels = results.label_ids
-
-
-
-    # for b in shuffled_test_dataset:
-    #     r = trainer.prediction_step(trainer.model, b, False)
-    #     break
-
+    # TODO: shouldn't just replace the model. model class changed
+    # pipeline.model.model = trainer.model
+    pipeline.model.model.encoder = trainer.model.encoder.to('cuda')
+    pipeline.model.model.decoder = trainer.model.decoder.to('cuda')
+    pipeline.model.model.forward = trainer.model.forward
 
 
     preds = []
     trues = []
     for data in tqdm(d):
-        
+
         timeseries, forecast, input_mask = data
-        
+
         pred = pipeline.predict(
             torch.tensor(timeseries),
             prediction_length=prediction_length,
@@ -1186,141 +1161,20 @@ def main(
             top_k=top_k,
             top_p=top_p,
         ).numpy().squeeze()
-        
+
         preds.append(pred.flatten())
         trues.append(forecast.flatten())
-
 
     preds = np.array(preds)
     trues = np.array(trues)
 
 
-
     # mae, mse
     mae = np.mean(np.abs(preds - trues))
     mse = np.mean((preds - trues) ** 2)
-    
+
     print('mae:', mae)
     print('mse:', mse)
-
-
-
-    # # EVAL
-    # df = pd.read_csv(moment_file_name,
-    #     index_col=0,
-    #     parse_dates=True,
-    #     )
-
-    # dataset = PandasDataset(df, target=target)
-
-    # # training_data, test_gen = split(dataset, offset=-prediction_length)
-
-    # # fine to have length > self.config.context_length, chorons checks and deletes the extra
-    # training_data, test_gen = split(dataset,
-    #                                 offset=int(0.7 * len(df))) # test idx start
-    # distance = prediction_length # TODO
-    # test_data = test_gen.generate_instances(prediction_length=prediction_length,
-    #                                         windows=len(shuffled_test_dataset)//distance if prompt else len(shuffled_test_dataset) // shuffled_test_dataset.n_channels // distance,
-    #                                         # windows=2, # TODO
-    #                                         max_history=context_length,
-    #                                         # distance=1, # data_stride_len
-    #                                         distance=distance, # data_stride_len
-    #                                         )
-
-
-
-    # def generate_sample_forecasts(
-    #     test_data_input: Iterable,
-    #     pipeline: ChronosPipeline,
-    #     # pipeline: Trainer,
-    #     prediction_length: int,
-    #     batch_size: int,
-    #     num_samples: int,
-    #     **predict_kwargs,
-    # ):
-    #     # Generate forecast samples
-    #     sample_forecasts = []
-    #     for batch in tqdm(test_data_input):
-    #         forecast_samples = []
-    #         context = torch.tensor(batch["target"])
-    #         forecast_samples.append(
-    #             pipeline.predict(
-    #                 context,
-    #                 prediction_length=prediction_length,
-    #                 # num_samples=num_samples,
-    #                 num_samples=1,
-    #                 limit_prediction_length=False,
-    #                 **predict_kwargs,
-    #             ).numpy()
-    #         )
-    #         forecast_samples = np.concatenate(forecast_samples)
-
-    #     # Convert forecast samples into gluonts SampleForecast objects
-    #         # if prompt:
-    #         forecast_start_date = batch["start"] + 512   # TODO: what is this for?
-    #         sample_forecasts.append(
-    #             SampleForecast(samples=np.transpose(forecast_samples, (1,2,0)), start_date=forecast_start_date)
-    #             # SampleForecast(samples=np.transpose(forecast_samples, (1,0)), start_date=forecast_start_date)
-    #         )
-    #         # else:
-    #         #     for forecast_sample in forecast_samples:
-    #         #         forecast_start_date = batch["start"] + 512
-    #         #         sample_forecasts.append(
-    #         #             SampleForecast(samples=forecast_sample, start_date=forecast_start_date)
-    #         #         )
-
-    #     return sample_forecasts
-
-
-
-
-    # sample_forecasts = generate_sample_forecasts(
-    #     test_data.input,
-    #     pipeline=pipeline,
-    #     prediction_length=prediction_length,
-    #     batch_size=8,
-    #     num_samples=num_samples,
-    #     temperature=temperature,
-    #     top_k=top_k,
-    #     top_p=top_p,
-    #     )
-
-    # # if prompt:
-    # #     for i in range(len(sample_forecasts)):
-    # #         sample_forecasts[i].samples = np.expand_dims(sample_forecasts[i].samples, 0)
-
-
-
-
-
-
-    # # mse and mae
-    # # for sample in sample_forecasts:
-    # #     pass
-        
-
-
-
-
-
-
-    # metrics = (
-    #     evaluate_forecasts(
-    #         sample_forecasts,
-    #         test_data=test_data,
-    #         metrics=[
-    #             MASE(),
-    #             MeanWeightedSumQuantileLoss(np.arange(0.1, 1.0, 0.1)),
-    #             MAE(),
-    #             MSE(),
-    #         ],
-    #         batch_size=5000,
-    #     )
-    #     .reset_index(drop=True)
-    #     .to_dict(orient="records")
-    # )
-
-    # print('test metrics:', metrics)
 
 
     if is_main_process():
@@ -1383,9 +1237,9 @@ if __name__ == "__main__":
             'learning_rate': 1e-5, # TODO
 
             'prediction_length': 60,
-            'prompt': False,
-            'lora': True,
-            
+            'prompt': True,
+            'lora': False,
+
             'seed': seed,
         }
 
